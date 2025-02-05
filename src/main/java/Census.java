@@ -1,7 +1,6 @@
 import java.io.Closeable;
 import java.io.IOException;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
 import java.util.function.Function;
 
 /**
@@ -21,14 +20,14 @@ public class Census {
     /**
      * Factory for iterators.
      */
-    private final Function<String, Census.AgeInputIterator> iteratorFactory;
+    private final Function<String, AgeInputIterator> iteratorFactory;
 
     /**
      * Creates a new Census calculator.
      *
      * @param iteratorFactory factory for the iterators.
      */
-    public Census(Function<String, Census.AgeInputIterator> iteratorFactory) {
+    public Census(Function<String, AgeInputIterator> iteratorFactory) {
         this.iteratorFactory = iteratorFactory;
     }
 
@@ -37,18 +36,53 @@ public class Census {
      * the 3 most common ages in the format specified by {@link #OUTPUT_FORMAT}.
      */
     public String[] top3Ages(String region) {
-        String [] top3Ages = new String[3];
+        List<String> top3Ages = new ArrayList<>();
+        HashMap<Integer,Integer> ageCountMap = new HashMap<>();
 
         try (AgeInputIterator ageInputIterator = iteratorFactory.apply(region)) {
             while(ageInputIterator.hasNext())
             {
                 int age = ageInputIterator.next();
-                System.out.println(age);
+                if(age >= 0)
+                {
+                    ageCountMap.put(age,ageCountMap.getOrDefault(age,0)+1);
+                }
+                else throw new IllegalArgumentException("Age is invalid");
+
             }
+            int maxKey1 = 0,maxKey2 =0, maxKey3 =0;
+            for (Map.Entry<Integer, Integer> entry : ageCountMap.entrySet()) {
+                if(maxKey1 < entry.getValue())
+                {
+                    maxKey3 = maxKey2;
+                    maxKey2 = maxKey1;
+                    maxKey1 = entry.getKey();
+                }
+            }
+            if(ageCountMap.containsKey(maxKey1))
+            {
+                top3Ages.add(String.format(OUTPUT_FORMAT,1,maxKey1,ageCountMap.get(maxKey1)));
+            }
+            if(ageCountMap.containsKey(maxKey2))
+            {
+                top3Ages.add( String.format(OUTPUT_FORMAT,2,maxKey2,ageCountMap.get(maxKey2)));
+            }
+            if(ageCountMap.containsKey(maxKey3))
+            {
+                top3Ages.add( String.format(OUTPUT_FORMAT,3,maxKey3,ageCountMap.get(maxKey3)));
+            }
+            return top3Ages.toArray(new String[0]);
         }catch (IOException ioException)
         {
             throw  new RuntimeException("Error occured while closing iterator");
+        }catch (RuntimeException re){
+            if(re instanceof IllegalArgumentException)
+                throw new RuntimeException(re.getMessage());
+            return new String[]{};
+            // region not found
+
         }
+
 
 
 //        In the example below, the top three are ages 10, 15 and 12
@@ -59,7 +93,6 @@ public class Census {
 //        };
 
         //throw new UnsupportedOperationException();
-        return top3Ages;
     }
 
     /**
