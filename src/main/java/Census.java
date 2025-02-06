@@ -9,15 +9,13 @@ import java.util.stream.Collectors;
  */
 public class Census {
     /**
-     * Number of cores in the current machine.
-     */
-    private static final int CORES = Runtime.getRuntime().availableProcessors();
-
-    /**
      * Output format expected by our tests.
      */
     public static final String OUTPUT_FORMAT = "%d:%d=%d"; // Position:Age=Total
-
+    /**
+     * Number of cores in the current machine.
+     */
+    private static final int CORES = Runtime.getRuntime().availableProcessors();
     /**
      * Factory for iterators.
      */
@@ -33,42 +31,51 @@ public class Census {
     }
 
     /**
+     * The method iterates over the region
+     * @param ageByRegionIterator
+     * @param ageCountMap
+     */
+    private static void calculateCountOfEachAge(AgeInputIterator ageByRegionIterator, HashMap<Integer, Integer> ageCountMap) {
+        while (ageByRegionIterator.hasNext()) {
+            int age = ageByRegionIterator.next();
+            if (age >= 0) {
+                ageCountMap.put(age, ageCountMap.getOrDefault(age, 0) + 1);
+            } else throw new IllegalArgumentException("Age is invalid");
+        }
+    }
+
+    private static void getTop3Ages(HashMap<Integer, Integer> ageCountMap, List<String> top3Ages) {
+        List<Map.Entry<Integer, Integer>> sortedByCounts = ageCountMap.entrySet().stream().sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed()).collect(Collectors.toList());
+        int prevValue = -1;
+        int uniqueRankCount = 0;
+        for (Map.Entry<Integer, Integer> entry : sortedByCounts) {
+            Integer ageCount = entry.getValue();
+            if (ageCount != prevValue) {
+                uniqueRankCount++; // update rank only if the ageCount is unique
+            }
+            prevValue = ageCount;
+            if (uniqueRankCount > 3) break;
+            top3Ages.add(String.format(OUTPUT_FORMAT, uniqueRankCount, entry.getKey(), ageCount));
+        }
+    }
+
+    /**
      * Given one region name, call {@link #iteratorFactory} to get an iterator for this region and return
      * the 3 most common ages in the format specified by {@link #OUTPUT_FORMAT}.
      */
     public String[] top3Ages(String region) {
         List<String> top3Ages = new ArrayList<>();
-        HashMap<Integer,Integer> ageCountMap = new HashMap<>();
-
-        try (AgeInputIterator ageInputIterator = iteratorFactory.apply(region)) {
-            while(ageInputIterator.hasNext())
-            {
-                int age = ageInputIterator.next();
-                if(age >= 0)
-                {
-                    ageCountMap.put(age,ageCountMap.getOrDefault(age,0)+1);
-                }
-                else throw new IllegalArgumentException("Age is invalid");
-
-            }
-
-            List<Integer> keys = ageCountMap.entrySet().stream().sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed()).limit(3).map(Map.Entry::getKey).collect(Collectors.toList());
-
-            for(int i =0;i<keys.size();i++)
-            {
-                top3Ages.add(String.format(OUTPUT_FORMAT,i+1,keys.get(i),ageCountMap.get(keys.get(i))));
-
-            }
-
+        HashMap<Integer, Integer> ageCountMap = new HashMap<>();
+        try (AgeInputIterator ageByRegionIterator = iteratorFactory.apply(region)) {
+            calculateCountOfEachAge(ageByRegionIterator, ageCountMap);
+            getTop3Ages(ageCountMap, top3Ages);
             return top3Ages.toArray(new String[0]);
-        }catch (IOException ioException)
-        {
-            throw  new RuntimeException("Error occured while closing iterator");
-        }catch (RuntimeException re){
-            if(re instanceof IllegalArgumentException)
-                throw new RuntimeException(re.getMessage());
-            return new String[]{};
-            // region not found
+        } catch (IOException ioException) {
+            throw new RuntimeException("Error occured while closing iterator");
+        } catch (RuntimeException re) {
+            if (re instanceof IllegalArgumentException)
+                throw new RuntimeException(re.getMessage()); // used for age is invalid error
+            return new String[]{}; // return empty in case of no region found
 
         }
     }
@@ -80,39 +87,19 @@ public class Census {
      */
     public String[] top3Ages(List<String> regionNames) {
         List<String> top3Ages = new ArrayList<>();
-        HashMap<Integer,Integer> ageCountMap = new HashMap<>();
-
-        for(String region :regionNames) {
-            try (AgeInputIterator ageInputIterator = iteratorFactory.apply(region)) {
-                while (ageInputIterator.hasNext()) {
-                    int age = ageInputIterator.next();
-                    if (age >= 0) {
-                        ageCountMap.put(age, ageCountMap.getOrDefault(age, 0) + 1);
-                    } else throw new IllegalArgumentException("Age is invalid");
-
-                }
-
-
+        HashMap<Integer, Integer> ageCountMap = new HashMap<>();
+        for (String region : regionNames) {
+            try (AgeInputIterator ageByRegionIterator = iteratorFactory.apply(region)) {
+                calculateCountOfEachAge(ageByRegionIterator, ageCountMap); // accumlate all age counts by region into one map
             } catch (IOException ioException) {
                 throw new RuntimeException("Error occurred while closing iterator");
             } catch (RuntimeException re) {
                 if (re instanceof IllegalArgumentException)
-                    throw new RuntimeException(re.getMessage());
-                // region not found
-
+                    throw new RuntimeException(re.getMessage()); // used for age is invalid error
             }
         }
-
-
-        List<Integer> keys = ageCountMap.entrySet().stream().sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed()).limit(3).map(Map.Entry::getKey).collect(Collectors.toList());
-
-        for (int i = 0; i < keys.size(); i++) {
-            top3Ages.add(String.format(OUTPUT_FORMAT, i + 1, keys.get(i), ageCountMap.get(keys.get(i))));
-
-        }
-
+        getTop3Ages(ageCountMap, top3Ages);
         return top3Ages.toArray(new String[0]);
-
     }
 
 
