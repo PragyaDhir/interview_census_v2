@@ -2,6 +2,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.*;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Implement the two methods below. We expect this class to be stateless and thread safe.
@@ -50,27 +51,15 @@ public class Census {
                 else throw new IllegalArgumentException("Age is invalid");
 
             }
-            int maxKey1 = 0,maxKey2 =0, maxKey3 =0;
-            for (Map.Entry<Integer, Integer> entry : ageCountMap.entrySet()) {
-                if(maxKey1 < entry.getValue())
-                {
-                    maxKey3 = maxKey2;
-                    maxKey2 = maxKey1;
-                    maxKey1 = entry.getKey();
-                }
-            }
-            if(ageCountMap.containsKey(maxKey1))
+
+            List<Integer> keys = ageCountMap.entrySet().stream().sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed()).limit(3).map(Map.Entry::getKey).collect(Collectors.toList());
+
+            for(int i =0;i<keys.size();i++)
             {
-                top3Ages.add(String.format(OUTPUT_FORMAT,1,maxKey1,ageCountMap.get(maxKey1)));
+                top3Ages.add(String.format(OUTPUT_FORMAT,i+1,keys.get(i),ageCountMap.get(keys.get(i))));
+
             }
-            if(ageCountMap.containsKey(maxKey2))
-            {
-                top3Ages.add( String.format(OUTPUT_FORMAT,2,maxKey2,ageCountMap.get(maxKey2)));
-            }
-            if(ageCountMap.containsKey(maxKey3))
-            {
-                top3Ages.add( String.format(OUTPUT_FORMAT,3,maxKey3,ageCountMap.get(maxKey3)));
-            }
+
             return top3Ages.toArray(new String[0]);
         }catch (IOException ioException)
         {
