@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="TestCensus" tests="10" skipped="1" failures="0" errors="0" timestamp="2025-02-13T10:03:38" hostname="Pragyas-MacBook-Pro.local" time="2.898">
+  <properties/>
+  <testcase name="testCensusMultiple_Empty_ClosesAllIterators" classname="TestCensus" time="0.012"/>
+  <testcase name="testCensusMultiple_1X1000_regions_share_place_Success" classname="TestCensus" time="0.014"/>
+  <testcase name="testCensusSingle_EmptyInput_ClosesIterator" classname="TestCensus" time="0.0"/>
+  <testcase name="testCensusMultiple_FailToCreate1_ClosesAllIterators" classname="TestCensus" time="0.003"/>
+  <testcase name="testCensusMultiple_FailToReturn1Item_ClosesAllIterators" classname="TestCensus" time="0.002"/>
+  <testcase name="testCensusSingle_Exception_HandlesExceptions" classname="TestCensus" time="0.0"/>
+  <testcase name="testCensusMultiple_15X10_000_regions_Success" classname="TestCensus" time="2.854"/>
+  <testcase name="testCensusSingle_1Age_Success" classname="TestCensus" time="0.011"/>
+  <testcase name="testCensusSingle_10_000_people_valid" classname="TestCensus" time="0.0">
+    <skipped/>
+  </testcase>
+  <testcase name="testCensusSingle_InvalidAge_ThrowsExceptionOrIgnores" classname="TestCensus" time="0.001"/>
+  <system-out><![CDATA[0
+4
+[1:0=2500, 1:1=2500, 1:2=2500, 2:3=2499]
+0
+[]
+0
+0
+0
+150
+[1:32=254, 2:53=217, 3:123=213]
+1
+[1:1=1]
+Invalid ages throw exception. Not bad!
+]]></system-out>
+  <system-err><![CDATA[Unexpected error in region invalid: Couldn't find region invalid
+Unexpected error in region invalid: Couldn't find region invalid
+]]></system-err>
+</testsuite>

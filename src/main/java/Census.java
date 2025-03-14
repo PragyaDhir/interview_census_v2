@@ -40,7 +40,6 @@ public class Census {
         while (ageByRegionIterator.hasNext()) {
             int age = ageByRegionIterator.next();
             if (age >= 0) {
-                //ageCountMap.put(age, ageCountMap.getOrDefault(age, 0) + 1);
                 ageCountMap.merge(age, 1, Integer::sum); // need to use merge and sum function as it is thread safe and prevents the race condition
             } else throw new IllegalArgumentException("Age is invalid");
         }
@@ -52,20 +51,49 @@ public class Census {
      * @param top3Ages
      */
     private static void getTop3Ages(ConcurrentMap<Integer, Integer> ageCountMap, List<String> top3Ages) {
-        // sort the hashmap by values
-        List<Map.Entry<Integer, Integer>> sortedByCounts = ageCountMap.entrySet().stream()
-                .sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed())
-                .collect(Collectors.toList());
-        int prevValue = -1;
-        int uniqueRankCount = 0;
-        for (Map.Entry<Integer, Integer> entry : sortedByCounts) {
-            Integer ageCount = entry.getValue();
-            if (ageCount != prevValue) {
-                uniqueRankCount++; // update rank only if the value of ageCount is unique
+        // Min-Heap (PriorityQueue) to track top age-count pairs
+        PriorityQueue<Map.Entry<Integer, Integer>> minHeap = new PriorityQueue<>(
+                Comparator.comparingInt((Map.Entry<Integer, Integer> e) -> e.getValue()).reversed() // Sort by count descending
+                        .thenComparing(Map.Entry::getKey) // Sort by age ascending for ties
+
+        );
+
+        // Find the top 3 unique count groups
+        for (Map.Entry<Integer, Integer> entry : ageCountMap.entrySet()) {
+            minHeap.offer(entry);
+
+            // Check if we are exceeding size 3
+            if (minHeap.size() > 3) {
+                // Peek the lowest count in heap
+
+                // Remove only if this value is lower than the current entry’s value
+                while (!minHeap.isEmpty() && minHeap.peek().getValue() < entry.getValue()) {
+                    minHeap.poll();
+                }
             }
-            prevValue = ageCount;
-            if (uniqueRankCount > 3) break;
-            top3Ages.add(String.format(OUTPUT_FORMAT, uniqueRankCount, entry.getKey(), ageCount));
+        }
+        System.out.println(minHeap.size());
+
+        // Convert heap to list and sort it in descending order (highest count first)
+        List<Map.Entry<Integer, Integer>> topEntries = new ArrayList<>(minHeap);
+        topEntries.sort(
+                Comparator.comparingInt((Map.Entry<Integer, Integer> e) -> e.getValue()).reversed() // Sort by count descending
+                        .thenComparing(Map.Entry::getKey) // Sort by age ascending for ties
+        );
+
+        // Ranking logic
+        int prevCount = -1;
+        int uniqueRankCount = 0;
+
+        for (Map.Entry<Integer, Integer> entry : topEntries) {
+            if (entry.getValue() != prevCount) {
+                uniqueRankCount++; // Update rank only for unique values
+            }
+            prevCount = entry.getValue();
+            if(uniqueRankCount >3) break;
+
+            // Format output as "Rank:Age=Count"
+            top3Ages.add(String.format(OUTPUT_FORMAT, uniqueRankCount, entry.getKey(), entry.getValue()));
         }
     }
 
@@ -96,33 +124,41 @@ public class Census {
      * We expect you to make use of all cores in the machine, specified by {@link #CORES).
      */
     public String[] top3Ages(List<String> regionNames) {
-        List<String> top3Ages = new ArrayList<>();
-        //using concurrent map to provide thread safety
+        List<String> resultList = new ArrayList<>();
         ConcurrentMap<Integer, Integer> ageCountMap = new ConcurrentHashMap<>();
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
-        // run a executor(thread) per region parallelly to accumulate age count for all regions in ageCountMap
         ExecutorService executor = Executors.newFixedThreadPool(CORES);
-        for (String region : regionNames) {
-            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                try (AgeInputIterator ageByRegionIterator = iteratorFactory.apply(region)) {
-                    calculateCountOfEachAge(ageByRegionIterator, ageCountMap);
-                } catch (IOException ioException) {
-                    throw new RuntimeException("Error occurred while closing iterator");
-                } catch (RuntimeException re) {
-                    if (re instanceof IllegalArgumentException)
-                        // used for age is invalid error
-                        throw new RuntimeException(re.getMessage());
-                }
-            }, executor);
-            futures.add(future);
+        try {
+            for (String region : regionNames) {
+                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                    try (AgeInputIterator iterator = iteratorFactory.apply(region)) {
+                        calculateCountOfEachAge(iterator, ageCountMap);
+                    } catch (IOException e) {
+                        // Log and ignore; iterator resource issues should not crash the entire process.
+                        System.err.println("IOException in region " + region + ": " + e.getMessage());
+                    } catch (IllegalArgumentException e) {
+                        // For invalid ages, you might choose to propagate the exception or log it.
+                        System.err.println("Invalid age in region " + region + ": " + e.getMessage());
+                        // Optionally rethrow if you want to fail the whole operation:
+                        // throw new RuntimeException(e.getMessage(), e);
+                    } catch (RuntimeException e) {
+                        // Log unexpected runtime exceptions
+                        System.err.println("Unexpected error in region " + region + ": " + e.getMessage());
+                    }
+                }, executor);
+                futures.add(future);
+            }
+            // Wait for all tasks to complete.
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        } finally {
+            executor.shutdown();
+            // Optionally await termination.
         }
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        executor.shutdown();
-
-        getTop3Ages(ageCountMap, top3Ages);
-        return top3Ages.toArray(new String[0]);
+        getTop3Ages(ageCountMap, resultList);
+        return resultList.toArray(new String[0]);
     }
+
 
 
     /**

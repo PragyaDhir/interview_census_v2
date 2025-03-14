@@ -1,0 +1,164 @@
+Subject: [PATCH] approach from 1
+---
+Index: src/main/java/Census.java
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/main/java/Census.java b/src/main/java/Census.java
+--- a/src/main/java/Census.java	(revision 7053170b60b2e147d95a684abd7f2030f5975ae7)
++++ b/src/main/java/Census.java	(date 1739426601737)
+@@ -2,6 +2,7 @@
+ import java.io.IOException;
+ import java.util.*;
+ import java.util.concurrent.*;
++import java.util.concurrent.atomic.AtomicInteger;
+ import java.util.function.Function;
+ import java.util.stream.Collectors;
+ 
+@@ -36,12 +37,12 @@
+      * @param ageByRegionIterator
+      * @param ageCountMap
+      */
+-    private static void calculateCountOfEachAge(AgeInputIterator ageByRegionIterator, ConcurrentMap<Integer, Integer> ageCountMap) {
++    private static void calculateCountOfEachAge(AgeInputIterator ageByRegionIterator, ConcurrentMap<Integer, AtomicInteger> ageCountMap) {
+         while (ageByRegionIterator.hasNext()) {
+             int age = ageByRegionIterator.next();
+             if (age >= 0) {
+                 //ageCountMap.put(age, ageCountMap.getOrDefault(age, 0) + 1);
+-                ageCountMap.merge(age, 1, Integer::sum); // need to use merge and sum function as it is thread safe and prevents the race condition
++                ageCountMap.computeIfAbsent(age, k -> new AtomicInteger(0)).incrementAndGet();
+             } else throw new IllegalArgumentException("Age is invalid");
+         }
+     }
+@@ -51,23 +52,40 @@
+      * @param ageCountMap
+      * @param top3Ages
+      */
+-    private static void getTop3Ages(ConcurrentMap<Integer, Integer> ageCountMap, List<String> top3Ages) {
+-        // sort the hashmap by values
+-        List<Map.Entry<Integer, Integer>> sortedByCounts = ageCountMap.entrySet().stream()
+-                .sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed())
+-                .collect(Collectors.toList());
+-        int prevValue = -1;
+-        int uniqueRankCount = 0;
+-        for (Map.Entry<Integer, Integer> entry : sortedByCounts) {
+-            Integer ageCount = entry.getValue();
+-            if (ageCount != prevValue) {
+-                uniqueRankCount++; // update rank only if the value of ageCount is unique
++    private static void getTop3Ages(ConcurrentMap<Integer, AtomicInteger> ageCountMap, List<String> top3Ages) {
++        // Group ages by their count.
++        Map<Integer, List<Integer>> countToAges = new HashMap<>();
++        for (Map.Entry<Integer, AtomicInteger> entry : ageCountMap.entrySet()) {
++            int age = entry.getKey();
++            int count = entry.getValue().get();
++            countToAges.computeIfAbsent(count, k -> new ArrayList<>()).add(age);
++        }
++
++        // Get distinct counts and sort in descending order.
++        // (m distinct counts, typically m << n)
++        List<Integer> counts = new ArrayList<>(countToAges.keySet());
++        counts.sort(Comparator.reverseOrder());
++
++        int rank = 0;
++        // Process each frequency group (in descending order of frequency)
++        for (int count : counts) {
++            rank++;  // each group represents a new rank
++            if (rank > 3) break;
++
++            // Sort ages within this frequency group in ascending order.
++            List<Integer> ages = countToAges.get(count);
++            ages.sort(Integer::compare);
++
++            // Format each entry in the group.
++            for (int age : ages) {
++                top3Ages.add(String.format(OUTPUT_FORMAT, rank, age, count));
+             }
+-            prevValue = ageCount;
+-            if (uniqueRankCount > 3) break;
+-            top3Ages.add(String.format(OUTPUT_FORMAT, uniqueRankCount, entry.getKey(), ageCount));
+         }
+     }
++
++
++
++
+ 
+     /**
+      * Given one region name, call {@link #iteratorFactory} to get an iterator for this region and return
+@@ -75,16 +93,16 @@
+      */
+     public String[] top3Ages(String region) {
+         List<String> top3Ages = new ArrayList<>();
+-        ConcurrentHashMap<Integer, Integer> ageCountMap = new ConcurrentHashMap<>();
++        ConcurrentHashMap<Integer, AtomicInteger> ageCountMap = new ConcurrentHashMap<>();
+         try (AgeInputIterator ageByRegionIterator = iteratorFactory.apply(region)) {
+             calculateCountOfEachAge(ageByRegionIterator, ageCountMap);
+             getTop3Ages(ageCountMap, top3Ages);
+             return top3Ages.toArray(new String[0]);
+         } catch (IOException ioException) {
+             throw new RuntimeException("Error occured while closing iterator");
+-        } catch (RuntimeException re) {
+-            if (re instanceof IllegalArgumentException)
+-                throw new RuntimeException(re.getMessage()); // used for age is invalid error
++        } catch (IllegalArgumentException iae) {
++            throw new RuntimeException("Invalid age encountered: " + iae.getMessage(), iae);
++        }catch (RuntimeException re){
+             return new String[]{}; // return empty in case of no region found
+ 
+         }
+@@ -98,27 +116,38 @@
+     public String[] top3Ages(List<String> regionNames) {
+         List<String> top3Ages = new ArrayList<>();
+         //using concurrent map to provide thread safety
+-        ConcurrentMap<Integer, Integer> ageCountMap = new ConcurrentHashMap<>();
+-        List<CompletableFuture<Void>> futures = new ArrayList<>();
++        ConcurrentMap<Integer, AtomicInteger> ageCountMap = new ConcurrentHashMap<>();
+ 
+         // run a executor(thread) per region parallelly to accumulate age count for all regions in ageCountMap
+         ExecutorService executor = Executors.newFixedThreadPool(CORES);
+-        for (String region : regionNames) {
+-            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+-                try (AgeInputIterator ageByRegionIterator = iteratorFactory.apply(region)) {
+-                    calculateCountOfEachAge(ageByRegionIterator, ageCountMap);
+-                } catch (IOException ioException) {
+-                    throw new RuntimeException("Error occurred while closing iterator");
+-                } catch (RuntimeException re) {
+-                    if (re instanceof IllegalArgumentException)
+-                        // used for age is invalid error
+-                        throw new RuntimeException(re.getMessage());
+-                }
+-            }, executor);
+-            futures.add(future);
+-        }
++        List<CompletableFuture<Object>> futures = regionNames.stream()
++                .map(region -> CompletableFuture.supplyAsync(() -> {
++                    try (AgeInputIterator ageByRegionIterator = iteratorFactory.apply(region)) {
++                        calculateCountOfEachAge(ageByRegionIterator, ageCountMap);
++                        return null; // Returning `null` since we don’t need a value
++                    } catch (IOException e) {
++                        throw new CompletionException("Error processing region: " + region, e);
++                    } catch (RuntimeException e)
++                    {
++                        System.out.println("Exception "+ e.getMessage());
++                        return null;
++                    }
++                }, executor))
++                .collect(Collectors.toList());
++
++// Ensure all tasks are completed
++        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
++
+         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+         executor.shutdown();
++        try {
++            if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
++                executor.shutdownNow();
++            }
++        } catch (InterruptedException e) {
++            executor.shutdownNow();
++            Thread.currentThread().interrupt();
++        }
+ 
+         getTop3Ages(ageCountMap, top3Ages);
+         return top3Ages.toArray(new String[0]);
